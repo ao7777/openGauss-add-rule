@@ -65,7 +65,7 @@ extern Node *remove_useless_results_recurse(PlannerInfo *root, Node *jtnode);
 #ifndef ENABLE_MULTIPLE_NODES
 extern void preprocess_rownum(PlannerInfo *root, Query *parse);
 #endif
-
+extern Query* rule1_impl(Query* parse);
 /*
  * prototypes for prepnonjointree.cpp
  */

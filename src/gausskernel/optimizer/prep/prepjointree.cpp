@@ -135,8 +135,8 @@ Query *rule1_impl(Query *parse)
 
     // check 2 table and a join relation in rtable
     Index rteIndex = 1,joinIndex = 1;
-    RangeTblEntry * rel0,rel1;
-    ListCell *lc = NULL; 
+    RangeTblEntry * rel0,*rel1;
+    ListCell *lc = NULL;
     foreach (lc, parse->rtable) {
         RangeTblEntry *rte = (RangeTblEntry *)lfirst(lc);
         if (RTE_RELATION == rte->rtekind) {
@@ -146,7 +146,7 @@ Query *rule1_impl(Query *parse)
             } else if(2==rteIndex){
                 rel1 = rte;
                 ++rteIndex;
-            } else 
+            } else
                return NULL;  // more than 2 table
         } else if (RTE_JOIN == rte->rtekind){
             if (1 == joinIndex) {
@@ -154,35 +154,34 @@ Query *rule1_impl(Query *parse)
                 ++joinIndex;
             } else
                 return NULL; //more than 1 join
-        } else 
+        } else
             return NULL; // other type of rte
     }
-    if ( 3 != rteIndex || 2 != join_id )
+    if ( 3 != rteIndex || 2 != joinIndex )
         return NULL;  // less than 2 table or 1 join
 
     // check where and join condition in joinTree
-    Node *jtnode  = (Node *)query->jointree;
+    Node *jtnode  = (Node *)parse->jointree;
 
-    // check where condition 
-    if (!IsA(jtnode, FromExpr)) 
+    // check where condition
+    if (!IsA(jtnode, FromExpr))
         return NULL;     // first op is not where
     FromExpr *f = (FromExpr *)jtnode;
     ListCell *l = NULL;
-    if (1 != list_lengt(f->fromlist))
+    if (1 != list_length(f->fromlist))
         return NULL; //  from more than 1 table
-    
-    A_Expr* fexpr = (A_Expr*)lfirst(list_head(  f->quals));
-    Node* lexpr = a->lexpr;
-    Node* rexpr = a->rexpr;
+
+    A_Expr* fexpr = (A_Expr*)list_head((List *)f->quals);
+    Node* lexpr = fexpr->lexpr;
+    Node* rexpr = fexpr->rexpr;
 
     //check where clause: t0.a1= const
     // restrict to order: t0.a = c
     // i simply don't know tag is T_xxx or T_A_xxx or A_xxx
-    if(strcmp(strVal(linitial(a->name)), "=") == 0 || !IsA(lexpr, T_ColumnRef) || !IsA(rexpr, T_Const))
-        return false;
+    if(strcmp(strVal(linitial(fexpr->name)), "=") == 0 || !IsA(lexpr, ColumnRef) || !IsA(rexpr, Const))
+        return NULL;
     ColumnRef* cexpr = (ColumnRef*)lexpr;
     Node* field1 = (Node*)linitial(cexpr->fields);
-    AssertEreport(IsA(field1, String), MOD_OPT, "");
     // get the name of t0
     char* relname = strVal(field1);
 
@@ -192,23 +191,23 @@ Query *rule1_impl(Query *parse)
 
     // check join
     jtnode = (Node *) lfirst(list_head( f->fromlist));
-    if (!IsA(jtnode, JoinExpr)) 
+    if (!IsA(jtnode, JoinExpr))
         return NULL;      // second op is not join
     JoinExpr *j = (JoinExpr *)jtnode;
     if(!JOIN_INNER == j->jointype)
         return NULL;   //join is not inner
-    if (!IsA(j->larg, RangeTblRef) || !IsA(j->rarg, RangeTblRef)) 
+    if (!IsA(j->larg, RangeTblRef) || !IsA(j->rarg, RangeTblRef))
         return NULL;   // join op is not 2 table
     // TODO: need to check join clause and foreign key relation
     // may using refnameRangeTblEntr
 
-    // start rewrite: 
+    // start rewrite:
     // delete t1, join from rtable, only t0 remain
     foreach (lc, parse->rtable){
         RangeTblEntry *rte = (RangeTblEntry *)lfirst(lc);
         if(rte!=rel0)
             // is it safe?
-            parse->rtable = list_delete_cell( parse->rtable,lc,lprev(lc));
+            parse->rtable = list_delete_cell(parse->rtable,lc,lc->next);
     }
     // change souce of where .. from from join to to
     RangeTblRef* rtr = makeNode(RangeTblRef);
@@ -216,10 +215,6 @@ Query *rule1_impl(Query *parse)
     // potential memory leak in the leafs of jtnode
     f->fromlist =  list_delete(f->fromlist, jtnode);
     f->fromlist = list_append_unique(f->fromlist,rtr);
-
-
-
-
 
 }
 /*
@@ -368,7 +363,7 @@ void pull_up_sublinks(PlannerInfo* root)
                                        &relids,
                                        &newTargetList,
                                        whereQuals);
-    
+
         /*
          * root->parse->jointree must always be a FromExpr, so insert a dummy one
          * if we got a bare RangeTblRef or JoinExpr out of the recursion.
@@ -826,7 +821,7 @@ static Node* pull_up_sublinks_qual_recurse(PlannerInfo* root, Node* node, Node**
     if (DISABLE_SUBLINK_PULLUP_EXPR() && permit_from_rewrite_hint(root, SUBLINK_PULLUP_DISABLE_EXPR)) {
         return node;
     }
-    
+
     /* convert or_clause to left join. */
     if (or_clause(node)) {
         convert_ORCLAUSE_to_join(root, (BoolExpr*)node, jtlink1, available_rels1);
@@ -1451,7 +1446,7 @@ static Node* pull_up_simple_subquery(PlannerInfo* root, Node* jtnode, RangeTblEn
         foreach(lc, subquery->rtable)
         {
             RangeTblEntry *child_rte = (RangeTblEntry *) lfirst(lc);
-    
+
             switch (child_rte->rtekind)
             {
                 case RTE_SUBQUERY:
@@ -1582,7 +1577,7 @@ static Node* pull_up_simple_union_all(PlannerInfo* root, Node* jtnode, RangeTblE
         if (shipping_type == SHIPPING_ALL && subquery->can_push == false) {
             shipping_type = SHIPPING_PARTIAL;
         }
-        
+
         if (shipping_type == SHIPPING_ALL) {
             if (!root->parse->can_push) {
                 return jtnode;
@@ -3816,9 +3811,9 @@ static void pull_up_sublinks_having(PlannerInfo* root)
     List* old_var_list = NIL;
     List* new_var_list = NIL;
     ListCell* lc = NULL;
- 
+
     Assert(root->parse->havingQual != NULL);
- 
+
     /*
      * Step 1: Make the original query an subquery(inner_query).
      *  Notice that the root->parse has been updated in push_down_one_query.
@@ -3826,7 +3821,7 @@ static void pull_up_sublinks_having(PlannerInfo* root)
      *  is no longer the inner query but the SELECT wrapper.
      */
     push_down_one_query(root, &inner_query);
- 
+
     /*
      * Step 2: Pull up HAVING clause, turn it into a qual.
      *  1. move all sortgroup clause in HAVING to targetist
@@ -3839,7 +3834,7 @@ static void pull_up_sublinks_having(PlannerInfo* root)
         RangeTblEntry* rte = linitial_node(RangeTblEntry, root->parse->rtable);
         TargetEntry* tle = NULL;
         Var* new_var = NULL;
- 
+
         tle = makeTargetEntry((Expr*)agg,
                                      list_length(inner_query->targetList) + 1,
                                      "?column?",
@@ -3847,74 +3842,74 @@ static void pull_up_sublinks_having(PlannerInfo* root)
         inner_query->targetList = lappend(inner_query->targetList, tle);
         new_var = makeVarFromTargetEntry((Index)1, tle);
         new_expr_list = lappend(new_expr_list, new_var);
- 
+
         /* Update colnames */
         if (rte->eref != NULL) {
             rte->eref->colnames = lappend(rte->eref->colnames, makeString(tle->resname));
         }
     }
- 
+
     inner_query->havingQual = replace_node_clause((Node*)inner_query->havingQual,
                                                           (Node*)old_expr_list,
                                                           (Node*)new_expr_list,
                                                           RNC_REPLACE_FIRST_ONLY);
- 
+
     /* Unjunk missing vars in group clause */
     foreach(lc, inner_query->targetList) {
         TargetEntry* tle = lfirst_node(TargetEntry, lc);
         List* varlist = NIL;
         Var* new_var = NULL;
         Var* old_var = NULL;
- 
+
         /* Skip norm entries */
         if (!tle->resjunk || tle->ressortgroupref == 0) {
             continue;
         }
- 
+
         tle->resjunk = false;
- 
+
         /* Get var replacements */
         new_var = makeVarFromTargetEntry((Index)1, tle);
         new_var_list = lappend(new_var_list, new_var);
- 
+
         varlist = pull_var_clause((Node*)(tle->expr),
                                           PVC_REJECT_AGGREGATES,
                                           PVC_REJECT_PLACEHOLDERS);
- 
+
         AssertEreport(list_length(varlist) == 1, MOD_OPT_REWRITE,
             "Cannot pull up HAVING from inner query, because inner query is broken.");
- 
+
         old_var = linitial_node(Var, varlist);
         old_var_list = lappend(old_var_list, old_var);
     }
- 
+
     /* pull up HAVING */
     root->parse->jointree->quals = \
         replace_node_clause((Node*)inner_query->havingQual,
                                     (Node*)old_var_list,
                                     (Node*)new_var_list,
                                     RNC_NONE);
- 
+
     inner_query->havingQual = NULL;
- 
+
     /* Free temp lists */
     list_free_ext(old_expr_list);
     list_free_ext(new_expr_list);
     list_free_ext(old_var_list);
     list_free_ext(new_var_list);
- 
+
     /*
      * Step 3: Pull up sort and limit clauses.
      */
     pull_up_sort_limit_clause(root->parse, inner_query, true);
- 
+
     /*
      * Final Step: Invoke generic sublink pullup out(pull up outer_query).
      *  This method is invoked before generic sublink pullups.
      *  The final step is proceed in pull_up_sublinks.
      */
 }
- 
+
 /*
  * @brief is_safe_pull_up_having
  *  Check if is safe for pull having clause.
@@ -3929,11 +3924,11 @@ static bool is_safe_pull_up_sublink_having(PlannerInfo* root)
     Query* subQuery = NULL;
     Node* node = NULL;
     List* aggreflist = NIL;
- 
+
     if (root->parse->groupClause == NULL || root->parse->havingQual == NULL) {
         return false;
     }
-    
+
     if (!IsA(root->parse->havingQual, OpExpr)) {
         return false;
     }
@@ -3956,7 +3951,7 @@ static bool is_safe_pull_up_sublink_having(PlannerInfo* root)
 
         list_free(aggreflist);
     }
- 
+
     // sublink should be uncorrelared
     sublinkList = pull_sublink((Node*)root->parse->havingQual, 0, false, false);
     foreach(lc, sublinkList)
@@ -3968,6 +3963,6 @@ static bool is_safe_pull_up_sublink_having(PlannerInfo* root)
             return false;
         }
     }
- 
+
     return true;
 }
