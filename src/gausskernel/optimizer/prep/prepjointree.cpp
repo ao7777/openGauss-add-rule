@@ -115,6 +115,113 @@ static bool find_rownum_in_quals(PlannerInfo *root);
 static bool contains_swctes(const PlannerInfo *root);
 #endif
 
+
+
+/*
+ * rule1_imple
+ *     rule1: Q0: Proj<a3 s>(Filter<pe a2>(InnerJoin<a a1>(Input<to>,Input<t1>)))
+ *            Q1: Proj<a5 s1>(Filter<p1 a4>(Input<t2>))
+ *            select t0.a from t0 join t1 where p(t0)
+ *
+ * @param (in) parse:
+ *     the query tree need to be rewriten
+ *
+ * @return:
+ *     NULL: the query is not valid for rule1
+ *     Query: the query rewritten based on rule1
+ */
+Query *rule1_impl(Query *parse)
+{
+
+    // check 2 table and a join relation in rtable
+    Index rteIndex = 1,joinIndex = 1;
+    RangeTblEntry * rel0,rel1;
+    ListCell *lc = NULL; 
+    foreach (lc, parse->rtable) {
+        RangeTblEntry *rte = (RangeTblEntry *)lfirst(lc);
+        if (RTE_RELATION == rte->rtekind) {
+            if (1 == rteIndex) {
+                rel0 = rte;
+                ++rteIndex;
+            } else if(2==rteIndex){
+                rel1 = rte;
+                ++rteIndex;
+            } else 
+               return NULL;  // more than 2 table
+        } else if (RTE_JOIN == rte->rtekind){
+            if (1 == joinIndex) {
+                // join_id = rte->relid;
+                ++joinIndex;
+            } else
+                return NULL; //more than 1 join
+        } else 
+            return NULL; // other type of rte
+    }
+    if ( 3 != rteIndex || 2 != join_id )
+        return NULL;  // less than 2 table or 1 join
+
+    // check where and join condition in joinTree
+    Node *jtnode  = (Node *)query->jointree;
+
+    // check where condition 
+    if (!IsA(jtnode, FromExpr)) 
+        return NULL;     // first op is not where
+    FromExpr *f = (FromExpr *)jtnode;
+    ListCell *l = NULL;
+    if (1 != list_lengt(f->fromlist))
+        return NULL; //  from more than 1 table
+    
+    A_Expr* fexpr = (A_Expr*)lfirst(list_head(  f->quals));
+    Node* lexpr = a->lexpr;
+    Node* rexpr = a->rexpr;
+
+    //check where clause: t0.a1= const
+    // restrict to order: t0.a = c
+    // i simply don't know tag is T_xxx or T_A_xxx or A_xxx
+    if(strcmp(strVal(linitial(a->name)), "=") == 0 || !IsA(lexpr, T_ColumnRef) || !IsA(rexpr, T_Const))
+        return false;
+    ColumnRef* cexpr = (ColumnRef*)lexpr;
+    Node* field1 = (Node*)linitial(cexpr->fields);
+    AssertEreport(IsA(field1, String), MOD_OPT, "");
+    // get the name of t0
+    char* relname = strVal(field1);
+
+    // check t0
+    if (relname !=rel0->mainRelName)
+        return NULL;
+
+    // check join
+    jtnode = (Node *) lfirst(list_head( f->fromlist));
+    if (!IsA(jtnode, JoinExpr)) 
+        return NULL;      // second op is not join
+    JoinExpr *j = (JoinExpr *)jtnode;
+    if(!JOIN_INNER == j->jointype)
+        return NULL;   //join is not inner
+    if (!IsA(j->larg, RangeTblRef) || !IsA(j->rarg, RangeTblRef)) 
+        return NULL;   // join op is not 2 table
+    // TODO: need to check join clause and foreign key relation
+    // may using refnameRangeTblEntr
+
+    // start rewrite: 
+    // delete t1, join from rtable, only t0 remain
+    foreach (lc, parse->rtable){
+        RangeTblEntry *rte = (RangeTblEntry *)lfirst(lc);
+        if(rte!=rel0)
+            // is it safe?
+            parse->rtable = list_delete_cell( parse->rtable,lc,lprev(lc));
+    }
+    // change souce of where .. from from join to to
+    RangeTblRef* rtr = makeNode(RangeTblRef);
+    rtr->rtindex = 1;
+    // potential memory leak in the leafs of jtnode
+    f->fromlist =  list_delete(f->fromlist, jtnode);
+    f->fromlist = list_append_unique(f->fromlist,rtr);
+
+
+
+
+
+}
 /*
  * replace_empty_jointree
  *             If the Query's jointree is empty, replace it with a dummy RTE_RESULT

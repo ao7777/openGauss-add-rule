@@ -1446,7 +1446,7 @@ Plan* subquery_planner(PlannerGlobal* glob, Query* parse, PlannerInfo* parent_ro
         lazyagg_main(parse);
         DEBUG_QRW("After lazyagg");
     }
-
+    rule1_impl(parse);
     /*
      * Here we only control the select permission for pan_table_data. Details see in checkPTRelkind().
      * The flag will be used in ExecCheckRTEPerms.
