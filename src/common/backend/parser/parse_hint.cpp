@@ -378,7 +378,7 @@ static void SetHintDesc(SetHint* hint, StringInfo buf)
     if (hint->name != NULL) {
         appendStringInfo(buf, "%s", hint->name);
     }
-    
+
     if (hint->value != NULL) {
         appendStringInfo(buf, " %s", hint->value);
     }
@@ -920,7 +920,7 @@ static void LeadingHintDelete(LeadingHint* hint)
     }
 
     HINT_FREE_RELNAMES(hint);
-    
+
     pfree_ext(hint);
 }
 
@@ -2233,7 +2233,7 @@ static void drop_duplicate_scan_hint(PlannerInfo* root, HintState* hstate)
                                 list_free(diff);
                             }
                         }
-                        
+
                         if (dup_hint != NULL) {
                             dup_hint->base.state = HINT_STATE_DUPLICATION;
                             hasError = true;
@@ -3472,7 +3472,7 @@ static void transform_rewrite_hint(PlannerInfo* root, Query* parse, List* rewrit
 {
     if (rewrite_hint_list == NULL)
         return;
-    
+
     ListCell* lc = NULL;
     foreach (lc, rewrite_hint_list) {
         RewriteHint* rewrite_hint = (RewriteHint*)lfirst(lc);
@@ -3522,9 +3522,12 @@ static unsigned int get_rewrite_rule_bits(RewriteHint* hint)
             bits = bits | SUBLINK_PULLUP_DISABLE_EXPR;
         } else if (pg_strcasecmp(param_name, "enable_sublink_pullup_enhanced") == 0) {
             bits = bits | SUBLINK_PULLUP_ENHANCED;
-        } else {
+        } else if (pg_strcasecmp(param_name,"redundant_join_remove")==0){
+            bits = bits | REDUNDANT_JOIN_REMOVE;
+        }
+        else {
             elog(WARNING, "invalid rewrite rule. (Supported rules: lazyagg, magicset, partialpush, uniquecheck, "
-                          "disablerep, intargetlist,disable_pullup_expr_sublink, enable_sublink_pullup_enhanced)");
+                          "disablerep, intargetlist,disable_pullup_expr_sublink, enable_sublink_pullup_enhanced, redundant_join_remove)");
         }
     }
 
@@ -3551,7 +3554,7 @@ bool permit_from_rewrite_hint(PlannerInfo *root, unsigned int params)
 
         if (rewrite_hint->param_bits == 0)
             bits = get_rewrite_rule_bits(rewrite_hint);
-        else 
+        else
             bits = rewrite_hint->param_bits;
 
         if (bits & params) {

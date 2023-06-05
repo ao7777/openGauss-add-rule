@@ -245,6 +245,7 @@ static const struct config_enum_entry rewrite_options[] = {
     {"predpushforce", PRED_PUSH_FORCE, false},
     {"disable_pullup_expr_sublink", SUBLINK_PULLUP_DISABLE_EXPR, false},
     {"enable_sublink_pullup_enhanced", SUBLINK_PULLUP_ENHANCED, false},
+    {"redundant_join_remove",REDUNDANT_JOIN_REMOVE,false},
     {NULL, 0, false}
 };
 
@@ -340,7 +341,7 @@ typedef struct b_format_behavior_compat_entry {
     const char *name; /* name of behavior compat entry */
     int flag;         /* bit flag position */
 } b_format_behavior_compat_entry;
- 
+
 static const struct b_format_behavior_compat_entry b_format_behavior_compat_options[B_FORMAT_OPT_MAX] = {
     {"set_session_transaction", B_FORMAT_OPT_ENABLE_SET_SESSION_TRANSACTION},
     {"enable_set_variables", B_FORMAT_OPT_ENABLE_SET_VARIABLES},
@@ -1740,7 +1741,7 @@ static void InitSqlConfigureNamesBool()
             NULL,
             NULL}
     };
-        
+
     int num_of_bool_option = sizeof(localConfigureNamesBool) / sizeof(config_bool);
     for (int i = 0; i < num_of_bool_option - 1; i++) {
         if (strcasecmp(localConfigureNamesBool[i].gen.name, "enable_save_datachanged_timestamp") == 0 &&
@@ -2624,7 +2625,7 @@ static void InitSqlConfigureNamesReal()
             gettext_noop(
                 "Sets the planner's default estimation when limit rows is unknown."
                 "Negative value means using percentage of the left tree rows, whereas positive value "
-                "sets the estimation directly."), 
+                "sets the estimation directly."),
             NULL},
             &u_sess->attr.attr_sql.default_limit_rows,
             -10,
@@ -3355,7 +3356,7 @@ static bool check_b_format_behavior_compat_options(char **newval, void **extra, 
     List *elemlist = NULL;
     ListCell *cell = NULL;
     int start = 0;
- 
+
     /* Need a modifiable copy of string */
     rawstring = pstrdup(*newval);
     /* Parse string into list of identifiers */
@@ -3364,15 +3365,15 @@ static bool check_b_format_behavior_compat_options(char **newval, void **extra, 
         GUC_check_errdetail("invalid paramater for behavior compat information.");
         pfree(rawstring);
         list_free(elemlist);
- 
+
         return false;
     }
- 
+
     foreach(cell, elemlist)
     {
         const char *item = (const char *)lfirst(cell);
         bool nfound = true;
- 
+
         for (start = 0; start < B_FORMAT_OPT_MAX; start++) {
 #ifdef ENABLE_MULTIPLE_NODES
             if (b_format_forbid_distribute_parameter(item)) {
@@ -3396,13 +3397,13 @@ static bool check_b_format_behavior_compat_options(char **newval, void **extra, 
             return false;
         }
     }
- 
+
     pfree(rawstring);
     list_free(elemlist);
- 
+
     return true;
 }
- 
+
 /*
  * assign_b_format_behavior_compat_options: GUC assign_hook for distribute_test_param
  */
@@ -3413,25 +3414,25 @@ static void assign_b_format_behavior_compat_options(const char *newval, void *ex
     ListCell *cell = NULL;
     int start = 0;
     int result = 0;
- 
+
     rawstring = pstrdup(newval);
     (void)SplitIdentifierString(rawstring, ',', &elemlist);
- 
+
     u_sess->utils_cxt.b_format_behavior_compat_flags = 0;
     foreach(cell, elemlist)
     {
         for (start = 0; start < B_FORMAT_OPT_MAX; start++) {
             const char *item = (const char *)lfirst(cell);
- 
+
             if (strcmp(item, b_format_behavior_compat_options[start].name) == 0 &&
                 !(result & b_format_behavior_compat_options[start].flag))
                     result += b_format_behavior_compat_options[start].flag;
         }
     }
- 
+
     pfree(rawstring);
     list_free(elemlist);
- 
+
     u_sess->utils_cxt.b_format_behavior_compat_flags = result;
 }
 #ifdef ENABLE_MULTIPLE_NODES

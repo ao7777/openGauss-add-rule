@@ -115,11 +115,13 @@ static bool find_rownum_in_quals(PlannerInfo *root);
 static bool contains_swctes(const PlannerInfo *root);
 #endif
 
+static bool check_redundant_join_predicate(OpExpr *expr,RangeTblEntry *rel0);
+
 
 
 /*
- * rule1_imple
- *     rule1: Q0: Proj<a3 s>(Filter<pe a2>(InnerJoin<a a1>(Input<to>,Input<t1>)))
+ * RedundantJoinRemove
+ *     RedundantJoinRemove: Q0: Proj<a3 s0>(Filter<p0 a2>(InnerJoin<a0 a1>(Input<t0>,Input<t1>)))
  *            Q1: Proj<a5 s1>(Filter<p1 a4>(Input<t2>))
  *            select t0.a from t0 join t1 where p(t0)
  *
@@ -130,7 +132,7 @@ static bool contains_swctes(const PlannerInfo *root);
  *     NULL: the query is not valid for rule1
  *     Query: the query rewritten based on rule1
  */
-Query *rule1_impl(Query *parse)
+Query *redundant_join_remove(Query *parse)
 {
 
     // check 2 table and a join relation in rtable
@@ -171,23 +173,6 @@ Query *rule1_impl(Query *parse)
     if (1 != list_length(f->fromlist))
         return NULL; //  from more than 1 table
 
-    A_Expr* fexpr = (A_Expr*)list_head((List *)f->quals);
-    Node* lexpr = fexpr->lexpr;
-    Node* rexpr = fexpr->rexpr;
-
-    //check where clause: t0.a1= const
-    // restrict to order: t0.a = c
-    // i simply don't know tag is T_xxx or T_A_xxx or A_xxx
-    if(strcmp(strVal(linitial(fexpr->name)), "=") == 0 || !IsA(lexpr, ColumnRef) || !IsA(rexpr, Const))
-        return NULL;
-    ColumnRef* cexpr = (ColumnRef*)lexpr;
-    Node* field1 = (Node*)linitial(cexpr->fields);
-    // get the name of t0
-    char* relname = strVal(field1);
-
-    // check t0
-    if (relname !=rel0->mainRelName)
-        return NULL;
 
     // check join
     jtnode = (Node *) lfirst(list_head( f->fromlist));
@@ -198,6 +183,18 @@ Query *rule1_impl(Query *parse)
         return NULL;   //join is not inner
     if (!IsA(j->larg, RangeTblRef) || !IsA(j->rarg, RangeTblRef))
         return NULL;   // join op is not 2 table
+
+
+    if(!IsA(f->quals, List)){
+        f->quals = (Node *)list_make1(f->quals);
+    }
+    foreach(l, (List *)f->quals){
+            if (!IsA(lfirst(l), OpExpr))
+                return NULL; // not a expr
+            if(!check_redundant_join_predicate((OpExpr *)lfirst(l),rel0)){
+                return NULL;
+            }
+    }
     // TODO: need to check join clause and foreign key relation
     // may using refnameRangeTblEntr
 
@@ -207,9 +204,9 @@ Query *rule1_impl(Query *parse)
         RangeTblEntry *rte = (RangeTblEntry *)lfirst(lc);
         if(rte!=rel0)
             // is it safe?
-            parse->rtable = list_delete_cell(parse->rtable,lc,lc->next);
+            parse->rtable = list_delete_cell(parse->rtable,lc->next,lc);
     }
-    // change souce of where .. from from join to to
+    // change souce of where .. from from join to t0
     RangeTblRef* rtr = makeNode(RangeTblRef);
     rtr->rtindex = 1;
     // potential memory leak in the leafs of jtnode
@@ -217,6 +214,44 @@ Query *rule1_impl(Query *parse)
     f->fromlist = list_append_unique(f->fromlist,rtr);
 
 }
+
+/**
+ * check_redundant_join_predicate
+ *    check if all the columns in the predicate are from rel0
+ *  @param (in) expr:
+ *     the predicate to be checked
+ *  @param (in) rel0:
+ *    the relation to be checked
+ * @return:
+ *   true: all the columns in the predicate are from rel0
+ *  false: not all the columns in the predicate are from rel0
+*/
+static bool check_redundant_join_predicate(OpExpr *expr, RangeTblEntry *rel0){
+    OpExpr *op = expr;
+    ListCell *l = NULL;
+    foreach(l, op->args){
+        Node * arg = (Node *)lfirst(l);
+        if(IsA(arg, Expr) && !check_redundant_join_predicate((OpExpr *)arg, rel0)){
+            return false;
+        }
+        else if(IsA(arg, ColumnRef)){
+        ColumnRef* cexpr = (ColumnRef*)arg;
+         foreach(l, cexpr->fields){
+            Node* field = (Node*)lfirst(l);
+            if(!IsA(field, String)){
+                return false;
+            }
+            char* colname = strVal(field);
+            if(colname != rel0->mainRelName){
+                return false;
+            }
+         }
+        }
+    }
+    return true;
+
+}
+
 /*
  * replace_empty_jointree
  *             If the Query's jointree is empty, replace it with a dummy RTE_RESULT

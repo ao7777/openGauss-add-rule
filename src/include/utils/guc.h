@@ -60,7 +60,7 @@ typedef enum { PGC_INTERNAL, PGC_POSTMASTER, PGC_SIGHUP, PGC_BACKEND, PGC_SUSET,
 /*
  * The following type represents the application environment of the
  * parameter.
- * 
+ *
  * NODE_ALL: general parameters, suitable for centralized and distributed
  * scenarios.
  * NODE_SINGLENODE: centralized parameters, suitable for centralized scenarios.
@@ -336,7 +336,7 @@ extern void GUC_check_errcode(int sqlerrcode);
     ((context) == PGC_INTERNAL ||   \
      (context) == PGC_POSTMASTER || \
      (context) == PGC_SIGHUP ||     \
-     (context) == PGC_BACKEND) 
+     (context) == PGC_BACKEND)
 
 
 #define IsSessionGuc(context)        \
@@ -399,7 +399,8 @@ typedef enum {
     PRED_PUSH_NORMAL = 128,
     PRED_PUSH_FORCE = 256,
     SUBLINK_PULLUP_DISABLE_EXPR = 512, /* disable pull sublink in expr clause */
-    SUBLINK_PULLUP_ENHANCED = 1024
+    SUBLINK_PULLUP_ENHANCED = 1024,
+    REDUNDANT_JOIN_REMOVE = 2048, /* allow remove redundant join */
 } rewrite_param;
 
 typedef enum {
