@@ -231,7 +231,7 @@ static bool check_redundant_join_predicate(OpExpr *expr, RangeTblEntry *rel0){
     ListCell *l = NULL;
     foreach(l, op->args){
         Node * arg = (Node *)lfirst(l);
-        if(IsA(arg, Expr) && !check_redundant_join_predicate((OpExpr *)arg, rel0)){
+        if(IsA(arg, OpExpr) && !check_redundant_join_predicate((OpExpr *)arg, rel0)){
             return false;
         }
         else if(IsA(arg, ColumnRef)){
